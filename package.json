@@ -1,0 +1,51 @@
+{
+    "name": "looter-trading-bot",
+    "version": "2.0.0",
+    "description": "Advanced multichain trading bot with Telegram interface - Looter.ai clone",
+    "main": "looter-bot.js",
+    "scripts": {
+        "start": "node main-bot.js",
+        "dev": "nodemon main-bot.js",
+        "db:setup": "psql looter_ai_clone < database/schema.sql",
+        "db:test": "node database/migrate-to-db.js",
+        "db:migrate": "node database/migrate-to-db.js"
+    },
+    "dependencies": {
+        "@solana/spl-token": "^0.3.8",
+        "@solana/web3.js": "^1.87.0",
+        "axios": "^1.10.0",
+        "bip39": "^3.1.0",
+        "dotenv": "^16.5.0",
+        "ed25519-hd-key": "^1.3.0",
+        "ethers": "^5.8.0",
+        "node-fetch": "^3.3.2",
+        "node-telegram-bot-api": "^0.61.0",
+        "pg": "^8.16.3",
+        "ws": "^8.14.0"
+    },
+    "devDependencies": {
+        "nodemon": "^3.0.1"
+    },
+    "keywords": [
+        "trading",
+        "telegram",
+        "bot",
+        "ethereum",
+        "solana",
+        "base",
+        "bsc",
+        "avalanche",
+        "arbitrum",
+        "defi",
+        "crypto",
+        "multichain",
+        "looter",
+        "ai",
+        "clone"
+    ],
+    "author": "Looter Bot Team",
+    "license": "MIT",
+    "engines": {
+        "node": ">=16.0.0"
+    }
+}
