@@ -310,44 +310,6 @@ class BaseTrading {
       const tokenInfo = await this.getTokenInfo(tokenOut);
       console.log(`🪙 Token: ${tokenInfo.symbol} (${tokenInfo.name})`);
 
-      // Create BaseV3Swapper contract instance
-      const swapper = new ethers.Contract(
-        this.contracts.baseV3Swapper,
-        [
-          'function exactInput((bytes path,address recipient,uint256 amountIn,uint256 amountOutMinimum)) external payable returns (uint256 amountOut)',
-          'function collectFee(address treasury,uint256 feeAmount) external payable',
-          'function multicall(bytes[] calldata data) external payable returns (bytes[] memory results)'
-        ],
-        wallet
-      );
-
-      // Quote for net amount (after fee) with automatic fee tier fallback
-      let quote;
-      let usedFeeTier = feeTier;
-      let path;
-      const candidateFees = [feeTier, 500, 3000, 10000]
-        .filter((v, i, arr) => v && arr.indexOf(v) === i); // unique, keep provided first
-
-      for (const ft of candidateFees) {
-        try {
-          console.log(`📊 Trying quote for ${feeInfo.netAmount} ETH at fee tier ${ft / 10000}%...`);
-          quote = await this.quoteExactInputSingle(tokenOut, feeInfo.netAmount, ft);
-          usedFeeTier = ft;
-          break; // Successfully got quote, exit loop
-        } catch (error) {
-          console.log(`❌ Quote failed for fee tier ${ft}: ${error.message}`);
-          if (ft === candidateFees[candidateFees.length - 1]) {
-            throw new Error(`No valid fee tier found for token ${tokenOut}`);
-          }
-        }
-      }
-
-      if (!quote) {
-        throw new Error(`Failed to get quote for token ${tokenOut}`);
-      }
-
-      console.log(`✅ Quote successful: ${quote.amountOut} tokens for ${feeInfo.netAmount} ETH (fee tier: ${usedFeeTier / 10000}%)`);
-
       // TODO: Complete the rest of this function implementation
       // For now, return a placeholder response
       return {
@@ -364,139 +326,158 @@ class BaseTrading {
     }
   }
 
-  // NEW: Single-transaction swap + fee collection using BaseV3Swapper with AUTO-DISCOVERY
+  // NEW: Universal Router single-tx swap + fee collection
   async execBuyWithFeeV2({
     privateKey,
     tokenOut,
     amountEth,
-    slippageBps = config.defaultSlippageBps, // Fallback only, auto-discovery will override
-    feeTier = config.defaultFeeTier, // Fallback only, auto-discovery will override
+    slippageBps = config.defaultSlippageBps,
+    feeTier = config.defaultFeeTier,
     userTier = 'FREE_TIER',
     feeInfo,
     gasSettings = {}
   }) {
-    console.log(`🚀 [BaseV3Swapper] AUTO-DISCOVERY + 1-tx swap + fee`);
+    console.log('🚀 [UNIVERSAL ROUTER] Single-tx swap + fee collection');
     console.log(`🎯 Token: ${tokenOut}`);
     console.log(`💰 Original Amount: ${amountEth} ETH`);
-    console.log(`💸 Fee Deducted: ${feeInfo.feeAmount} ETH (${feeInfo.feePercent}%)`);
+    console.log(`💸 Fee Amount: ${feeInfo.feeAmount} ETH (${feeInfo.feePercent}%)`);
     console.log(`✅ Net Amount: ${feeInfo.netAmount} ETH`);
-    console.log(`🏷️ User Tier: ${userTier}`);
 
     try {
-      // 🔍 STEP 1: AUTO-DISCOVER OPTIMAL PARAMETERS
+      // 1. Auto-discover best route
       console.log(`🔍 AUTO-DISCOVERING optimal DEX and parameters...`);
       const discovery = await DexAggregator.discoverBest(tokenOut, feeInfo.netAmount);
-      
       if (!discovery) {
-        throw new Error('No liquid pools found across supported DEXs (Uniswap V3, Aerodrome, SushiSwap, BaseSwap, PancakeSwap)');
+        throw new Error('No liquid pool found across all supported DEXs');
       }
 
-      // Use discovered parameters instead of manual ones
-      const optimalSlippageBps = Math.round(discovery.bestSlippage * 100);
-      const optimalFeeTier = discovery.feeTier;
-      const optimalRouter = discovery.router;
-      
       console.log(`✅ OPTIMAL ROUTE SELECTED:`);
       console.log(`   🏆 DEX: ${discovery.name}`);
-      console.log(`   🏊 Fee Tier: ${optimalFeeTier / 10000}%`);
-      console.log(`   💧 Liquidity: ${discovery.depthUSD.toLocaleString()}`);
+      console.log(`   🏊 Fee Tier: ${discovery.feeTier / 10000}%`);
       console.log(`   🛡️ Auto Slippage: ${discovery.bestSlippage}%`);
-      console.log(`   📊 Price Impact: ${discovery.priceImpact?.toFixed(2) || 'N/A'}%`);
-      console.log(`   📍 Pool: ${discovery.pool}`);
 
-      // Get wallet
+      // 2. Get wallet
       const wallet = await this.getWallet(privateKey);
-      const provider = wallet.provider;
       console.log(`👤 Wallet: ${wallet.address}`);
 
-      // Check balance (against original amount)
+      // 3. Check balance
       const balance = await wallet.getBalance();
-      const originalAmountWei = ethers.utils.parseEther(amountEth.toString());
+      const totalWei = ethers.utils.parseEther(amountEth.toString());
       const feeWei = ethers.utils.parseEther(feeInfo.feeAmount.toString());
-      const netAmountWei = originalAmountWei.sub(feeWei);
-      
-      if (balance.lt(originalAmountWei)) {
+      const netWei = totalWei.sub(feeWei);
+
+      if (balance.lt(totalWei)) {
         throw new Error(`Insufficient balance: ${ethers.utils.formatEther(balance)} ETH available, ${amountEth} ETH required`);
       }
 
       console.log(`💰 Balance: ${ethers.utils.formatEther(balance)} ETH ✅`);
 
-      // Get token info
+      // 4. Get token info
       const tokenInfo = await this.getTokenInfo(tokenOut);
       console.log(`🪙 Token: ${tokenInfo.symbol} (${tokenInfo.name})`);
 
-      // Create BaseV3Swapper contract instance
-      const swapper = new ethers.Contract(
-        this.contracts.baseV3Swapper,
-        [
-          'function exactInput((bytes path,address recipient,uint256 amountIn,uint256 amountOutMinimum)) external payable returns (uint256 amountOut)',
-          'function collectFee(address treasury,uint256 feeAmount) external payable',
-          'function multicall(bytes[] calldata data) external payable returns (bytes[] memory results)'
-        ],
-        wallet
-      );
-
-      // Create path with discovered optimal fee tier: WETH (tokenIn) → tokenOut, packed
-      const path = ethers.utils.solidityPack(
-        ['address', 'uint24', 'address'],
-        [this.contracts.weth, optimalFeeTier, tokenOut]
-      );
-      
-      console.log(`🛣️ Swap path: WETH → (${optimalFeeTier / 10000}%) → ${tokenInfo.symbol}`);
-
-      // Calculate minimum output with discovered optimal slippage
-      const minOut = discovery.amountOut.mul(10000 - optimalSlippageBps).div(10000);
-      console.log(`📊 Expected Output: ${ethers.utils.formatUnits(discovery.amountOut, tokenInfo.decimals)} ${tokenInfo.symbol}`);
-      console.log(`🔒 Min Output (${discovery.bestSlippage}% slippage): ${ethers.utils.formatUnits(minOut, tokenInfo.decimals)} ${tokenInfo.symbol}`);
-
-      // Get treasury address
+      // 5. Get treasury address
       const treasury = this.feeTransferManager.getTreasuryAddress();
       console.log(`🏦 Treasury address: ${treasury}`);
 
-      // Build multicall payload
-      const calls = [
-        swapper.interface.encodeFunctionData('exactInput', [{
-          path,
-          recipient: wallet.address,
-          amountIn: netAmountWei,
-          amountOutMinimum: minOut
-        }]),
-        swapper.interface.encodeFunctionData('collectFee', [treasury, feeWei])
+      // 6. Build Universal Router commands
+      const commands = [];
+      const inputs = [];
+
+      // Command 0x0b: V3_SWAP_EXACT_IN
+      // Swap net amount (amount - fee) for tokens
+      const swapCommand = '0x0b';
+      const deadline = Math.floor(Date.now() / 1000) + 300; // 5 minutes
+      
+      // Calculate minimum output with discovered optimal slippage
+      const expectedOut = discovery.amountOut || ethers.BigNumber.from('1'); // Fallback
+      const slippageMultiplier = 10000 - Math.round(discovery.bestSlippage * 100);
+      const minOut = expectedOut.mul(slippageMultiplier).div(10000);
+      
+      // Encode V3 swap parameters
+      const swapInput = ethers.utils.defaultAbiCoder.encode([
+        'address', 'uint256', 'uint256', 'bytes', 'bool'
+      ], [
+        wallet.address, // recipient
+        netWei, // amountIn (net amount for swap)
+        minOut, // amountOutMinimum
+        ethers.utils.solidityPack(['address', 'uint24', 'address'], [
+          this.contracts.weth,
+          discovery.feeTier || 3000,
+          tokenOut
+        ]), // path
+        false // payerIsUser
+      ]);
+
+      commands.push(swapCommand);
+      inputs.push(swapInput);
+
+      // Command 0x1a: PAY_PORTION - Send fee to treasury (if fee > 0)
+      if (feeWei.gt(0)) {
+        const feeCommand = '0x1a';
+        const feeInput = ethers.utils.defaultAbiCoder.encode([
+          'address', 'uint256'
+        ], [
+          treasury, // recipient
+          feeWei // amount
+        ]);
+
+        commands.push(feeCommand);
+        inputs.push(feeInput);
+      }
+
+      console.log(`🔧 Building Universal Router transaction...`);
+      console.log(`  📤 Commands: ${commands.length} (swap${feeWei.gt(0) ? ' + fee' : ''})`);
+      console.log(`  💱 Swap amount: ${ethers.utils.formatEther(netWei)} ETH`);
+      if (feeWei.gt(0)) {
+        console.log(`  💸 Fee amount: ${ethers.utils.formatEther(feeWei)} ETH → ${treasury}`);
+      }
+
+      // 7. Execute Universal Router multicall
+      const universalRouterABI = [
+        'function execute(bytes calldata commands, bytes[] calldata inputs, uint256 deadline) external payable'
       ];
 
-      console.log(`🔄 Executing multicall: ${discovery.name} swap + fee collection...`);
-      console.log(`  📤 Swap amount: ${ethers.utils.formatEther(netAmountWei)} ETH`);
-      console.log(`  💸 Fee amount: ${ethers.utils.formatEther(feeWei)} ETH`);
-      console.log(`  💰 Total ETH sent: ${ethers.utils.formatEther(originalAmountWei)} ETH`);
+      const router = new ethers.Contract(
+        this.contracts.universalRouter,
+        universalRouterABI,
+        wallet
+      );
 
-      // Execute multicall with full original amount
-      const tx = await swapper.multicall(calls, {
-        value: originalAmountWei,
-        gasLimit: gasSettings.gasLimit || 500000
-      });
+      console.log(`🔄 Executing Universal Router single-tx...`);
+      
+      const tx = await router.execute(
+        ethers.utils.hexConcat(commands), // commands as bytes
+        inputs, // inputs array
+        deadline, // deadline
+        {
+          value: totalWei, // Send total amount (swap + fee)
+          gasLimit: gasSettings.gasLimit || 600000
+        }
+      );
 
       console.log(`📍 Transaction sent: ${tx.hash}`);
       console.log(`⏳ Waiting for confirmation...`);
 
       const receipt = await tx.wait();
 
-      console.log(`✅ AUTO-DISCOVERED SINGLE-TX SWAP + FEE COMPLETED!`);
+      console.log(`✅ UNIVERSAL ROUTER SINGLE-TX COMPLETED!`);
       console.log(`🏆 Used DEX: ${discovery.name}`);
-      console.log(`🏊 Fee Tier: ${optimalFeeTier / 10000}%`);
+      console.log(`🏊 Fee Tier: ${discovery.feeTier / 10000}%`);
       console.log(`🛡️ Slippage: ${discovery.bestSlippage}%`);
       console.log(`📊 Gas used: ${receipt.gasUsed.toString()}`);
       console.log(`🔗 Basescan: ${config.base.explorer}/tx/${tx.hash}`);
-      console.log(`💳 Fee automatically transferred to treasury in same transaction!`);
+      console.log(`💡 Single transaction handled both swap AND fee transfer!`);
 
       return {
         success: true,
         txHash: tx.hash,
         receipt: receipt,
-        amountIn: netAmountWei,
-        originalAmount: originalAmountWei,
+        amountIn: netWei,
+        originalAmount: totalWei,
         feeInfo: feeInfo,
         userTier: userTier,
-        amountOutQuoted: discovery.amountOut,
+        amountOutQuoted: expectedOut,
         amountOutMin: minOut,
         gasUsed: receipt.gasUsed.toString(),
         blockNumber: receipt.blockNumber,
@@ -506,26 +487,25 @@ class BaseTrading {
         discovery: {
           dex: discovery.dex,
           dexName: discovery.name,
-          feeTier: optimalFeeTier,
+          feeTier: discovery.feeTier,
           slippage: discovery.bestSlippage,
           depthUSD: discovery.depthUSD,
           priceImpact: discovery.priceImpact,
           pool: discovery.pool,
-          router: optimalRouter
+          router: 'UniversalRouter'
         },
-        // Fee transfer info (integrated in same tx)
+        // Fee transfer info (integrated in same transaction)
         feeTransfer: {
           success: true,
           integrated: true,
+          amount: feeInfo.feeAmount,
           treasury: treasury,
-          feeAmount: feeInfo.feeAmount,
-          explorerUrl: `${config.base.explorer}/tx/${tx.hash}`,
-          message: 'Fee collected in same transaction'
+          message: 'Fee collected in same transaction via Universal Router'
         }
       };
 
     } catch (error) {
-      console.error('❌ Auto-discovery BaseV3Swapper exec buy failed:', error.message);
+      console.error('❌ Universal Router exec buy failed:', error.message);
       
       return {
         success: false,

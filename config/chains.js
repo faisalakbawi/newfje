@@ -36,6 +36,7 @@ const CHAINS = {
     routers: {
       baseswap: '0x4752ba5dbc23f44d87826276bf6fd6b1c372ad24',
       uniswapV3: '0x2626664c2603336E57B271c5C0b26F421741e481',
+      universalRouter: '0x3fC91A3afd70395Cd496C647d5a6CC9D4B2b7FAD',
       aerodrome: '0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43',
       pancakeswap: '0x8cFe327CEc66d1C090Dd72bd0FF11d690C33a2Eb'
     },

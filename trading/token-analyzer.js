@@ -164,6 +164,11 @@ class TokenAnalyzer {
       // Get pool information
       const poolInfo = await this.getEVMPoolInfo(tokenAddress, chain);
       
+      // If poolInfo has a detected fee tier, log it
+      if (poolInfo.feeTier) {
+        console.log("🔍 Detected fee tier:", poolInfo.feeTier);
+      }
+      
       // Get tax information
       const taxInfo = await this.getEVMTokenTax(tokenAddress, chain);
       

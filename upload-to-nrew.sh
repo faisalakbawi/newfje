@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "🚀 Uploading base-volume-bot to nrew repository..."
+echo "🚀 Uploading base-volume-bot to newfje repository..."
 echo ""
 
 # Check if authenticated
@@ -17,19 +17,19 @@ echo "✅ GitHub authentication verified"
 # Remove any existing remote (just in case)
 git remote remove origin 2>/dev/null || true
 
-# Add the nrew repository as remote
+# Add the newfje repository as remote
 echo "📡 Setting up remote repository..."
-git remote add origin https://github.com/faisalakbawi/nrew.git
+git remote add origin https://github.com/faisalakbawi/newfje.git
 
 # Ensure we're on main branch
 git branch -M main
 
 # Push to GitHub using GitHub CLI authentication
 echo "⬆️  Pushing code to GitHub..."
-gh repo set-default faisalakbawi/nrew
+gh repo set-default faisalakbawi/newfje
 git push -u origin main
 
 echo ""
 echo "🎉 SUCCESS! Your base-volume-bot has been uploaded to:"
-echo "   https://github.com/faisalakbawi/nrew"
+echo "   https://github.com/faisalakbawi/newfje"
 echo ""

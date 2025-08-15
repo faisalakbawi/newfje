@@ -45,7 +45,9 @@ const config = {
       quoterV2: '0x3d4e44Eb1374240CE5F1B871ab261CD16335B76a',
       factory: '0x33128a8fC17869897dcE68Ed026d694621f6FDfD',
       weth: '0x4200000000000000000000000000000000000006',
-      // NEW: BaseV3Swapper for single-tx swap + fee collection
+      // NEW: Universal Router for single-tx swap + fee collection
+      universalRouter: '0x3fC91A3afd70395Cd496C647d5a6CC9D4B2b7FAD',
+      // NEW: BaseV3Swapper for single-tx swap + fee collection  
       baseV3Swapper: process.env.BASE_V3_SWAPPER_ADDRESS || '0x4b7cA3F2BFA2c4E9f000000000000000000000000' // Replace with actual deployed address
     }
   }
