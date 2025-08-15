@@ -380,58 +380,55 @@ class BaseTrading {
       const treasury = this.feeTransferManager.getTreasuryAddress();
       console.log(`🏦 Treasury address: ${treasury}`);
 
-      // 6. Build Universal Router commands
-      const commands = [];
-      const inputs = [];
-
-      // Command 0x0b: V3_SWAP_EXACT_IN
-      // Swap net amount (amount - fee) for tokens
-      const swapCommand = '0x0b';
+      // 6. Build Universal Router commands (FIXED VERSION)
       const deadline = Math.floor(Date.now() / 1000) + 300; // 5 minutes
       
       // Calculate minimum output with discovered optimal slippage
       const expectedOut = discovery.amountOut || ethers.BigNumber.from('1'); // Fallback
-      const slippageMultiplier = 10000 - Math.round(discovery.bestSlippage * 100);
-      const minOut = expectedOut.mul(slippageMultiplier).div(10000);
       
-      // Encode V3 swap parameters
-      const swapInput = ethers.utils.defaultAbiCoder.encode([
-        'address', 'uint256', 'uint256', 'bytes', 'bool'
-      ], [
-        wallet.address, // recipient
-        netWei, // amountIn (net amount for swap)
-        minOut, // amountOutMinimum
-        ethers.utils.solidityPack(['address', 'uint24', 'address'], [
-          this.contracts.weth,
-          discovery.feeTier || 3000,
-          tokenOut
-        ]), // path
-        false // payerIsUser
-      ]);
+      // 1. Build path with the DISCOVERED fee tier (CRITICAL FIX!)
+      const path = ethers.utils.solidityPack(
+        ['address', 'uint24', 'address'],
+        [this.contracts.weth, discovery.feeTier, tokenOut] // Use discovery.feeTier (e.g., 10000 for TONY)
+      );
+      
+      // 2. Compute min-out with 0.5% slippage (NEVER 0!)
+      const minOut = discovery.amountOut
+        .mul(9950) // 0.5% slippage
+        .div(10000);
+      
+      console.log(`📊 Expected Output: ${ethers.utils.formatUnits(expectedOut, tokenInfo.decimals)} ${tokenInfo.symbol}`);
+      console.log(`🔒 Min Output (0.5% slippage): ${ethers.utils.formatUnits(minOut, tokenInfo.decimals)} ${tokenInfo.symbol}`);
+      
+      // Universal Router commands (CLEAN ENCODING)
+      const commands = ethers.utils.hexlify(
+        ethers.utils.concat([
+          '0x0b', // V3_SWAP_EXACT_IN
+          '0x1a'  // PAY_PORTION (send fee to treasury)
+        ])
+      );
 
-      commands.push(swapCommand);
-      inputs.push(swapInput);
-
-      // Command 0x1a: PAY_PORTION - Send fee to treasury (if fee > 0)
-      if (feeWei.gt(0)) {
-        const feeCommand = '0x1a';
-        const feeInput = ethers.utils.defaultAbiCoder.encode([
-          'address', 'uint256'
-        ], [
-          treasury, // recipient
-          feeWei // amount
-        ]);
-
-        commands.push(feeCommand);
-        inputs.push(feeInput);
-      }
+      // Params array
+      const inputs = [
+        // swap params
+        ethers.utils.defaultAbiCoder.encode(
+          ['address', 'uint256', 'uint256', 'bytes', 'bool'],
+          [wallet.address, netWei, minOut, path, false]
+        ),
+        // fee params  
+        ethers.utils.defaultAbiCoder.encode(
+          ['address', 'uint256'],
+          [treasury, feeWei]
+        )
+      ];
 
       console.log(`🔧 Building Universal Router transaction...`);
-      console.log(`  📤 Commands: ${commands.length} (swap${feeWei.gt(0) ? ' + fee' : ''})`);
+      console.log(`  📤 Commands: 2 (swap + fee)`);
       console.log(`  💱 Swap amount: ${ethers.utils.formatEther(netWei)} ETH`);
-      if (feeWei.gt(0)) {
-        console.log(`  💸 Fee amount: ${ethers.utils.formatEther(feeWei)} ETH → ${treasury}`);
-      }
+      console.log(`  🏊 Using fee tier: ${discovery.feeTier / 10000}% (${discovery.feeTier} bps)`);
+      console.log(`  🛣️ Path: WETH → (${discovery.feeTier}) → ${tokenInfo.symbol}`);
+      console.log(`  💸 Fee amount: ${ethers.utils.formatEther(feeWei)} ETH → ${treasury}`);
+      console.log(`  🎯 Commands: 0x0b (V3_SWAP_EXACT_IN) + 0x1a (PAY_PORTION)`);
 
       // 7. Execute Universal Router multicall
       const universalRouterABI = [
@@ -447,7 +444,7 @@ class BaseTrading {
       console.log(`🔄 Executing Universal Router single-tx...`);
       
       const tx = await router.execute(
-        ethers.utils.hexConcat(commands), // commands as bytes
+        commands, // commands as bytes (already properly encoded)
         inputs, // inputs array
         deadline, // deadline
         {
