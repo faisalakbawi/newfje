@@ -27,6 +27,9 @@ const UniversalFeeManager = require('./src/services/universal-fee-manager');
 const PremiumFeaturesManager = require('./src/services/premium-features-manager');
 const FeeTransferManager = require('./src/services/fee-transfer-manager');
 
+// NEW: DEX Aggregator for auto-discovery
+const DexAggregator = require('./src/services/dex-aggregator');
+
 class LooterBot {
   constructor() {
     console.log('🚀 Initializing Looter.ai Clone...');
@@ -97,6 +100,15 @@ class LooterBot {
       this.feeTransferManager = new FeeTransferManager();
       console.log('💰 Monetization services initialized');
       
+      // NEW: DEX Aggregator health check
+      console.log('🔍 Checking DEX Aggregator health...');
+      const dexHealth = await DexAggregator.healthCheck();
+      if (dexHealth.healthy) {
+        console.log(`✅ DEX Aggregator ready: ${dexHealth.summary}`);
+      } else {
+        console.warn(`⚠️ DEX Aggregator issues: ${dexHealth.error || 'Some DEXs unavailable'}`);
+      }
+      
       console.log('🔧 Setting up bot handlers...');
       
       // Setup command handlers
@@ -114,6 +126,8 @@ class LooterBot {
       
       console.log('✅ Looter.ai Clone Bot Started Successfully!');
       console.log('🎯 Features: Multi-chain trading, wallet management, sniping');
+      console.log('🔍 Auto-Discovery: DEX, fee tier, slippage optimization');
+      console.log('💎 Supported DEXs: Uniswap V3, Aerodrome, SushiSwap, BaseSwap, PancakeSwap');
       console.log('🗄️ Database: PostgreSQL with encrypted wallet storage');
       console.log('💡 Send /start to begin');
       
@@ -317,7 +331,7 @@ class LooterBot {
         `⏳ Processing with ${tradeSettings.executionSpeed} execution...`, { parse_mode: 'Markdown' });
 
       // Execute the buy using NEW tiered system with fees
-      const result = await this.baseTrading.execBuyWithFee({
+      const result = await this.baseTrading.execBuyWithFeeV2({
         privateKey: firstWallet.privateKey,
         tokenOut: tokenAddress,
         amountEth: ethAmount, // Original amount

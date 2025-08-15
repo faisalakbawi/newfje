@@ -438,13 +438,9 @@ class BuyTokenUI {
         ],
         [
           { text: this.getCustomAmountButtonText(chatId, sessionId), callback_data: `buy_custom_${sessionId}` },
-          { text: `📊 Slippage ${this.getTokenSlippage(chatId, sessionId)}%`, callback_data: `slippage_${sessionId}` }
+          { text: `📊 Auto-Optimized`, callback_data: `auto_optimized_info_${sessionId}` }
         ],
-        [
-          { text: `📊 Refresh Info`, callback_data: `buy_refresh_${sessionId}` },
-          { text: this.getGasDisplayText(chatId, sessionId, tokenData), callback_data: `gas_${sessionId}` }
-        ],
-        // 🔥 NEW: SPEED TIER SELECTION
+        // 🔥 SPEED TIER SELECTION (Revenue)
         [
           { text: this.getSpeedTierButtonText(chatId, sessionId, 'standard'), callback_data: `speed_${sessionId}_standard` },
           { text: this.getSpeedTierButtonText(chatId, sessionId, 'fast'), callback_data: `speed_${sessionId}_fast` }

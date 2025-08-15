@@ -233,6 +233,11 @@ class FeeTransferManager {
       minTransferAmount: this.minTransferAmount
     };
   }
+
+  // NEW: Get treasury address (for BaseV3Swapper)
+  getTreasuryAddress() {
+    return this.treasuryWallet || '0x8825268025Bf3680789c25Fc5a2453668757dc54';
+  }
 }
 
 module.exports = FeeTransferManager;

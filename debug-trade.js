@@ -28,7 +28,7 @@ async function testTrade() {
     console.log(`  Speed: ${speedTier} (0.5% fee)`);
     console.log(`  User ID: ${userId}`);
     
-    console.log('🚀 Calling execBuyWithFee...');
+    console.log('🚀 Calling execBuyWithFeeV2...');
     
     // Calculate fee info (0.5% fee for fast tier)
     const feePercent = speedTier === 'fast' ? 0.5 : speedTier === 'instant' ? 1.0 : 0.3;
@@ -40,7 +40,7 @@ async function testTrade() {
     
     // Add 10-second timeout for quick test
     const result = await Promise.race([
-      baseTrading.execBuyWithFee({
+      baseTrading.execBuyWithFeeV2({
         privateKey: privateKey,
         tokenOut: tokenAddress,
         amountEth: grossAmount,

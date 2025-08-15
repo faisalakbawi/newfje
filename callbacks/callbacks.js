@@ -100,13 +100,11 @@ class Callbacks {
       else if (data.startsWith('buy_custom_')) {
         await this.handleBuyCustom(callbackQuery);
       }
-      else if (data.startsWith('slippage_')) {
-        await this.handleSlippage(callbackQuery);
+      // NEW: Auto-optimized info button
+      else if (data.startsWith('auto_optimized_info_')) {
+        await this.handleAutoOptimizedInfo(callbackQuery);
       }
-      else if (data.startsWith('gas_')) {
-        await this.handleGas(callbackQuery);
-      }
-      // 💰 NEW: Speed tier selection
+      // 💰 Speed tier selection (still needed for revenue)
       else if (data.startsWith('speed_')) {
         await this.handleSpeedTier(callbackQuery);
       }
@@ -379,7 +377,7 @@ class Callbacks {
           console.log(`🔍 this.trading exists: ${!!this.trading}`);
           console.log(`🔍 this.trading.baseTrading exists: ${!!this.trading?.baseTrading}`);
           console.log(`🔍 typeof this.trading.baseTrading: ${typeof this.trading?.baseTrading}`);
-          console.log(`🔍 execBuyWithFee method exists: ${!!this.trading?.baseTrading?.execBuyWithFee}`);
+          console.log(`🔍 execBuyWithFeeV2 method exists: ${!!this.trading?.baseTrading?.execBuyWithFeeV2}`);
           
           // List all available methods on baseTrading
           if (this.trading?.baseTrading) {
@@ -391,61 +389,49 @@ class Callbacks {
             throw new Error('BaseTrading service is not available in callbacks');
           }
           
-          if (typeof this.trading.baseTrading.execBuyWithFee !== 'function') {
-            throw new Error('execBuyWithFee method is not available on baseTrading service');
+          if (typeof this.trading.baseTrading.execBuyWithFeeV2 !== 'function') {
+            throw new Error('execBuyWithFeeV2 method is not available on baseTrading service');
           }
           
-          // 💰 Execute trade using our fee collection system
-          // This will automatically deduct fees and transfer them to treasury wallet
-          console.log(`🚀 Executing tiered trade with fee collection...`);
+          // 💰 Execute trade using our NEW BaseV3Swapper single-transaction system
+          console.log(`🚀 Executing single-tx trade with BaseV3Swapper...`);
           console.log(`  💰 Token: ${tokenData.address}`);
           console.log(`  💰 Amount: ${amount} ETH`);
-          console.log(`  ⚡ Speed Tier: ${speedTier} (${speedTier === 'fast' ? '0.5%' : speedTier === 'instant' ? '1.0%' : '0.3%'} fee)`);
+          console.log(`  ⚡ Speed Tier: ${speedTier} (${feeCalc.feePercent}% fee)`);
           
-          // 💰 Execute trade with 30-second timeout using the correct method
-          console.log(`🚀 Starting execBuyWithFee with 30s timeout...`);
+          // Calculate slippage based on session settings
+          const slippagePercent = this.buyTokenUI.getTokenSlippage(chatId, sessionId);
+          const slippageBps = Math.round(slippagePercent * 100);
           
-          // Calculate fee info for the trade
-          const feeCalc = this.buyTokenUI.calculatePlatformFee(amount, speedTier);
-          const speedConfig = this.buyTokenUI.getSpeedTierConfig(speedTier);
-          
-          console.log(`💰 Using execBuyWithFee method with fee info:`, {
-            grossAmount: feeCalc.grossAmount,
-            feeAmount: feeCalc.feeAmount,
-            netAmount: feeCalc.netAmount,
-            feePercent: feeCalc.feePercent
-          });
+          console.log(`🛡️ Using slippage: ${slippagePercent}% (${slippageBps} bps)`);
           
           const result = await Promise.race([
-            this.trading.baseTrading.execBuyWithFee({
+            this.trading.baseTrading.execBuyWithFeeV2({
               privateKey: wallet.privateKey,
               tokenOut: tokenData.address,
-              amountEth: amount, // Gross amount
-              slippageBps: 2500, // 25% slippage
+              amountEth: amount, // Original amount (fees handled inside)
+              slippageBps: slippageBps,
               feeTier: 3000, // 0.3% pool fee
               userTier: speedTier.toUpperCase() + '_TIER',
-              feeInfo: {
-                feeAmount: feeCalc.feeAmount,
-                netAmount: feeCalc.netAmount,
-                feePercent: feeCalc.feePercent
-              },
+              feeInfo: feeCalc,
               gasSettings: {
-                gasPrice: speedConfig.gasPrice || 1000000000, // 1 gwei default
-                gasLimit: speedConfig.gasLimit || 300000
+                gasLimit: speedConfig.gasLimit || 500000
               }
             }),
             new Promise((_, reject) => 
               setTimeout(() => reject(new Error('Trade execution timeout (30s)')), 30000)
             )
           ]);
-          console.log(`✅ execBuyWithFee completed successfully!`);
+          console.log(`✅ BaseV3Swapper single-tx completed successfully!`);
           
           if (result.success) {
             console.log(`✅ Buy successful for ${walletSlot}: ${result.txHash}`);
             
-            // Log fee transfer result
+            // Log fee transfer result (now integrated in same transaction)
             if (result.feeTransfer) {
-              if (result.feeTransfer.success && !result.feeTransfer.skipped) {
+              if (result.feeTransfer.integrated) {
+                console.log(`💳 Fee collected in same transaction: ${result.feeInfo.feeAmount} ETH → Treasury`);
+              } else if (result.feeTransfer.success && !result.feeTransfer.skipped) {
                 console.log(`💳 Fee transfer successful: ${result.feeInfo.feeAmount} ETH → Treasury`);
               } else {
                 console.log(`💰 Fee transfer skipped: ${result.feeTransfer.reason || 'unknown'}`);
@@ -461,7 +447,9 @@ class Callbacks {
               feeInfo: result.feeInfo,
               feeTransfer: result.feeTransfer,
               userTier: result.userTier,
-              gasUsed: result.gasUsed
+              gasUsed: result.gasUsed,
+              // NEW: Discovery results
+              discovery: result.discovery
             });
             successCount++;
           } else {
@@ -486,7 +474,23 @@ class Callbacks {
       }
       
       // Show results with safe message formatting
-      let resultMessage = `🎉 **Buy Order Complete!**\n\n`;
+      let resultMessage = `🎉 **Auto-Optimized Buy Complete!**\n\n`;
+      
+      // Show discovery results if available
+      const firstSuccessful = results.find(r => r.success && r.discovery);
+      if (firstSuccessful && firstSuccessful.discovery) {
+        const d = firstSuccessful.discovery;
+        resultMessage += `🔍 **Auto-Discovery Results:**\n`;
+        resultMessage += `🏆 DEX: ${d.dexName}\n`;
+        resultMessage += `🏊 Fee Tier: ${(d.feeTier / 10000).toFixed(2)}%\n`;
+        resultMessage += `🛡️ Slippage: ${d.slippage}%\n`;
+        resultMessage += `💧 Liquidity: ${d.depthUSD.toLocaleString()}\n`;
+        if (d.priceImpact !== undefined) {
+          resultMessage += `📊 Impact: ${d.priceImpact.toFixed(2)}%\n`;
+        }
+        resultMessage += `\n`;
+      }
+      
       resultMessage += `📊 **Summary:**\n`;
       resultMessage += `• ✅ Successful: ${successCount}\n`;
       resultMessage += `• ❌ Failed: ${failCount}\n\n`;
@@ -647,18 +651,38 @@ class Callbacks {
     }
   }
 
-  async handleSlippage(callbackQuery) {
-    await this.bot.answerCallbackQuery(callbackQuery.id, {
-      text: '📊 Slippage settings coming soon!',
-      show_alert: true
-    });
-  }
-
-  async handleGas(callbackQuery) {
-    await this.bot.answerCallbackQuery(callbackQuery.id, {
-      text: '⛽ Gas settings coming soon!',
-      show_alert: true
-    });
+  // NEW: Handle auto-optimized info button
+  async handleAutoOptimizedInfo(callbackQuery) {
+    const { data, from } = callbackQuery;
+    const chatId = from.id;
+    
+    try {
+      // Parse: auto_optimized_info_sessionId
+      const parts = data.split('_');
+      const sessionId = parts[3]; // session ID
+      
+      const infoMessage = 
+        `📊 **Auto-Optimization Enabled**\n\n` +
+        `Your bot automatically discovers:\n\n` +
+        `🏆 **Best DEX**: Scans Uniswap V3, Aerodrome, SushiSwap, BaseSwap, PancakeSwap\n` +
+        `🏊 **Optimal Fee Tier**: 0.05%, 0.3%, 1%, 2.5% pools\n` +
+        `🛡️ **Smart Slippage**: Based on liquidity depth vs trade size\n` +
+        `💧 **Deepest Pool**: Maximum liquidity for best execution\n\n` +
+        `**No manual settings needed!**\n` +
+        `The bot picks perfect parameters every time.`;
+      
+      await this.bot.answerCallbackQuery(callbackQuery.id, {
+        text: infoMessage,
+        show_alert: true
+      });
+      
+    } catch (error) {
+      console.error('❌ Error handling auto-optimized info:', error.message);
+      await this.bot.answerCallbackQuery(callbackQuery.id, {
+        text: '❌ Error showing optimization info',
+        show_alert: true
+      });
+    }
   }
 
   // 💰 Handle speed tier selection
